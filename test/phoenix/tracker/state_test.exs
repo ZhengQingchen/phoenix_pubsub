@@ -34,7 +34,7 @@ defmodule Phoenix.Tracker.StateTest do
     a = new(:a)
     john = new_pid()
     a = State.join(a, john, "lobby", :john)
-    assert [{{_, _, :john}, _, _}] = State.get_by_topic(a, "lobby")
+    assert [{:john, %{}}] = State.get_by_topic(a, "lobby")
     a = State.leave(a, john, "lobby", :john)
     assert [] = State.get_by_topic(a, "lobby")
   end
@@ -170,32 +170,67 @@ defmodule Phoenix.Tracker.StateTest do
     state3 = State.join(state3, user3, "topic", "user3", %{})
 
     # all replicas online
-    assert [{{"topic", ^pid, "key1"}, %{}, {{:node1, 1}, 1}},
-            {{"topic", ^pid, "key2"}, %{}, {{:node1, 1}, 2}}] =
-           State.get_by_topic(state, "topic")
+    assert [{"key1", %{}}, {"key2", %{}}] = State.get_by_topic(state, "topic")
 
     {state, _, _} = State.merge(state, State.extract(state2, :node1, state.context))
     {state, _, _} = State.merge(state, State.extract(state3, :node1, state.context))
-    assert [{{"topic", ^pid, "key1"}, %{}, {{:node1, 1}, 1}},
-            {{"topic", ^pid, "key2"}, %{}, {{:node1, 1}, 2}},
-            {{"topic", ^user2, "user2"}, %{}, {{:node2, 1}, 1}},
-            {{"topic", ^user3, "user3"}, %{}, {{:node3, 1}, 1}}] =
+    assert [{"key1", %{}}, {"key2", %{}}, {"user2", %{}}, {"user3", %{}}] =
            State.get_by_topic(state, "topic")
 
     # one replica offline
     {state, _, _} = State.replica_down(state, state2.replica)
-    assert [{{"topic", ^pid, "key1"}, %{}, {{:node1, 1}, 1}},
-            {{"topic", ^pid, "key2"}, %{}, {{:node1, 1}, 2}},
-            {{"topic", ^user3, "user3"}, %{}, {{:node3, 1}, 1}}] =
+    assert [{"key1", %{}}, {"key2", %{}}, {"user3", %{}}] = 
            State.get_by_topic(state, "topic")
 
     # two replicas offline
     {state, _, _} = State.replica_down(state, state3.replica)
-    assert [{{"topic", ^pid, "key1"}, %{}, {{:node1, 1}, 1}},
-            {{"topic", ^pid, "key2"}, %{}, {{:node1, 1}, 2}}] =
-           State.get_by_topic(state, "topic")
+    assert [{"key1", %{}}, {"key2", %{}}] = State.get_by_topic(state, "topic")
 
     assert [] = State.get_by_topic(state, "another:topic")
+  end
+
+  test "get_by_topic_and_key" do
+    pid = self()
+    state = new(:node1)
+    state2 = new(:node2)
+    state3 = new(:node3)
+    {state, _, _} = State.replica_up(state, {:node2, 1})
+    {state, _, _} = State.replica_up(state, {:node3, 1})
+
+    {state2, _, _} = State.replica_up(state2, {:node1, 1})
+    {state2, _, _} = State.replica_up(state2, {:node3, 1})
+
+    {state3, _, _} = State.replica_up(state3, {:node1, 1})
+    {state3, _, _} = State.replica_up(state3, {:node2, 1})
+
+    login_state_other = new_pid()
+    login_state2 = new_pid()
+    login_state3 = new_pid()
+
+    assert [] = State.get_by_topic_and_key(state, "topic", "key1")
+    state = State.join(state, pid, "topic", "key1", %{ref: 1})
+    state = State.join(state, login_state_other, "topic", "key1", %{ref: 2})
+    state2 = State.join(state2, login_state2, "topic", "key1", %{ref: 3})
+    state3 = State.join(state3, login_state3, "topic", "key1", %{ref: 4})
+
+    # all replicas online
+    assert [%{ref: 1}, %{ref: 2}] = State.get_by_topic_and_key(state, "topic", "key1")
+
+    {state, _, _} = State.merge(state, State.extract(state2, :node1, state.context))
+    {state, _, _} = State.merge(state, State.extract(state3, :node1, state.context))
+    assert [%{ref: 1}, %{ref: 2}, %{ref: 3}, %{ref: 4}] =
+           State.get_by_topic_and_key(state, "topic", "key1")
+
+    # one replica offline
+    {state, _, _} = State.replica_down(state, state2.replica)
+    assert [%{ref: 1}, %{ref: 2}, %{ref: 4}] = 
+           State.get_by_topic_and_key(state, "topic", "key1")
+
+    # two replicas offline
+    {state, _, _} = State.replica_down(state, state3.replica)
+    assert [%{ref: 1}, %{ref: 2}] = State.get_by_topic_and_key(state, "topic", "key1")
+
+    assert [] = State.get_by_topic_and_key(state, "another:topic", "key1")
   end
 
   test "remove_down_replicas" do

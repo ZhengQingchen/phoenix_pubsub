@@ -194,11 +194,30 @@ defmodule Phoenix.Tracker do
   """
   @spec list(atom, topic) :: [presence]
   def list(server_name, topic) do
-    # TODO avoid extra map (ideally crdt does an ets select only returning {key, meta})
     server_name
     |> GenServer.call({:list, topic})
     |> State.get_by_topic(topic)
-    |> Enum.map(fn {{_topic, _pid, key},  meta, _tag} -> {key, meta} end)
+  end
+
+  @doc """
+  Lists all presences tracked under a given topic and key.
+
+    * `server_name` - The registered name of the tracker server
+    * `topic` - The `Phoenix.PubSub` topic to update for this presence
+    * `key` - The `Phoenix.PubSub` key to update for this presence
+
+  Returns a lists of presences in metadata tuple pairs.
+
+  ## Examples
+
+      iex> Phoenix.Tracker.list(MyTracker, "lobby", 123)
+      [%{name: "user 123"}, %{name: "user 456"}]
+  """
+  @spec list(atom, topic, String.t) :: [Map.t]
+  def list(server_name, topic, key) do
+    server_name
+    |> GenServer.call({:list, topic})
+    |> State.get_by_topic_and_key(topic, key)
   end
 
   @doc """

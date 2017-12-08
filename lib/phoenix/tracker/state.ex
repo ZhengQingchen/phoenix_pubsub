@@ -16,6 +16,7 @@ defmodule Phoenix.Tracker.State do
   @type context    :: %{name => clock}
   @type values     :: ets_id | :extracted | %{tag => {pid, topic, key, meta}}
   @type value      :: {{topic, pid, key}, meta, tag}
+  @type key_meta   :: {key, meta}
   @type delta      :: %State{mode: :delta}
   @type pid_lookup :: {pid, topic, key}
 
@@ -56,7 +57,7 @@ defmodule Phoenix.Tracker.State do
       replica: replica,
       context: %{replica => 0},
       mode: :normal,
-      values: :ets.new(:values, [:ordered_set]),
+      values: :ets.new(:values, [:ordered_set, read_concurrency: true]),
       pids: :ets.new(:pids, [:duplicate_bag]),
       replicas: %{replica => :up}})
   end
@@ -116,9 +117,20 @@ defmodule Phoenix.Tracker.State do
   @spec get_by_topic(t, topic) :: [value]
   def get_by_topic(%State{values: values} = state, topic) do
     replicas = down_replicas(state)
-    :ets.select(values, [{ {{topic, :_, :_}, :_, {:"$1", :_}},
-      not_in(:"$1", replicas), [:"$_"]}])
+    :ets.select(values, [{ {{topic, :_, :"$1"}, :"$2", {:"$3", :_}},
+      not_in(:"$3", replicas), [{{:"$1", :"$2"}}]}])
   end
+
+  @doc """
+  Returns a list of elements for the topic and key who belong to an online replica.
+  """
+  @spec get_by_topic_and_key(t, topic, key) :: [meta]
+  def get_by_topic_and_key(%State{values: values} = state, topic, key) do
+    replicas = down_replicas(state)
+    :ets.select(values, [{ {{topic, :_, key}, :"$1", {:"$2", :_}},
+      not_in(:"$2", replicas), [:"$1"]}])
+  end
+
   defp not_in(_pos, []), do: []
   defp not_in(pos, replicas), do: [not: ors(pos, replicas)]
   defp ors(pos, [rep]), do: {:"==", pos, {rep}}
